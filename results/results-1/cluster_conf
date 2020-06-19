@@ -1,0 +1,14 @@
+Cluster configuration (linode cluster):
+    mgr=1(160GB/8GB/4CPU)
+    mon=3(80GB/4GB/2CPU)
+    mds=1(160GB/8GB/4CPU)
+    osd=8 (25GB/1GB/1CPU)
+    clnt=2(25GB/1GB/1CPU)
+
+Ceph version:
+    Octopus 15.2.3 (d289bbdec69ed7c1f516e0a093594580a76b78d)
+
+1GB file:
+    dd if=/dev/urandom of=file_1G bs=1M count=1000"
+1000 files of 1MB:
+    for i in {1..1000};do dd if=/dev/urandom of=file_1M_$i bs=1M count=1;done;
