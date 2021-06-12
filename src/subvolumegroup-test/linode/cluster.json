@@ -1,0 +1,37 @@
+{
+  "region": "ap-west",
+  "image": "CentOS 8",
+  "type": 8192,
+  "nodes": [
+      {
+        "count": 3,
+        "prefix": "mon",
+        "swap_size": 16384,
+        "group": "mons"
+      },
+      {
+        "count": 9,
+        "prefix": "osd",
+        "root_size": 16384,
+        "swap_size": 16384,
+        "group": "osds"
+      },
+      {
+        "count": 1,
+        "prefix": "mds",
+        "group": "mdss"
+      },
+      {
+        "count": 1,
+        "prefix": "mgr",
+        "swap_size": 16384,
+        "group": "mgrs"
+      },
+      {
+        "count": 3,
+        "prefix": "client",
+        "group": "clients",
+        "type": 1024
+      }
+  ]
+}

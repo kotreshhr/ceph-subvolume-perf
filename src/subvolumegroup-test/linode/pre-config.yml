@@ -1,0 +1,209 @@
+# Copyright (C) 2020 Red Hat, Inc.
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+# PARTICULAR PURPOSE.  See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along with
+# this program.  If not, see <https://www.gnu.org/licenses/>.
+
+
+# This playbook does some basic pre-configuration of the Linodes prior to Ceph installation. In particular, it:
+#
+# - updates packages
+# - sets up log rotation
+# - configures the core dump location for easy retrieval via other ansible playbooks
+# - tries to wipe the /dev/sdc device on OSDs (only works if the OSD is down);
+#   this is necessary after nuking the cluster as Linode does not wipe the disks
+#   immediately after deletion.
+
+---
+
+- hosts: all
+  become: yes
+  tasks:
+  - name: create hosts from inventory
+    become: no
+    shell: ./misc/generate-hosts.py linodes
+    register: etchosts
+    run_once: true
+    delegate_to: localhost
+
+  - name: add to /etc/hosts
+    blockinfile:
+      block: "{{ etchosts.stdout }}"
+      path: /etc/hosts
+
+  - name: add to /etc/hosts
+    blockinfile:
+      block: "{{ etchosts.stdout }}"
+      path: /etc/hosts
+    ignore_errors: yes
+    run_once: true
+    delegate_to: localhost
+
+  # coredump capture setup
+  - name: create crash directory
+    file:
+      path: /crash
+      state: directory
+      owner: root
+      group: root
+      mode: 1777
+
+  - name: set core_pattern
+    sysctl:
+      name: kernel.core_pattern
+      value: /crash/%e-%h-%p-%t.core
+
+  - name: add DefaultLimitCORE=infinity
+    lineinfile:
+      path: /etc/systemd/system.conf
+      line: DefaultLimitCORE=infinity
+    register: coreline
+
+  - name: reexec systemd
+    shell: systemctl daemon-reexec
+    when: coreline.changed
+
+  - name: enable epel-release
+    yum:
+      name: "epel-release"
+      state: latest
+      update_cache: yes
+
+  - name: update packages
+    yum:
+      name: "*"
+      state: latest
+      update_cache: yes
+
+  # package setup
+  # - logrotate needs psmisc for killall
+  # - ceph-ansible needs EPEL but also needs ca-certificates installed to avoid some errors, do this now
+  - name: install launcher packages
+    yum:
+      name: logrotate,psmisc,ca-certificates,python3,chrony,podman,lvm2
+      state: latest
+
+  # log rotation setup
+  - name: copy ceph-logrotate.timer
+    copy: src=ceph-log-rotate.timer dest=/etc/systemd/system/ owner=root group=root mode=644
+
+  - name: copy ceph-logrotate.service
+    copy: src=ceph-log-rotate.service dest=/etc/systemd/system/ owner=root group=root mode=644
+
+  - name: copy ceph logrotate config
+    copy: src=ceph.logrotate dest=/etc/logrotate.d/ceph owner=root group=root mode=644
+
+ # Ideally we would use the ceph-logrotate.timer but systemd has a bug requiring cron
+  - name: copy crontab
+    copy: src=crontab dest=/root/ owner=root group=root mode=644
+  - name: register crontab
+    shell: crontab crontab
+
+  - name: enable ntp
+    systemd:
+      enabled: yes
+      name: chronyd
+      state: started
+
+- hosts: mdss
+  become: yes
+  tasks:
+  - name: check for mds logrotate config
+    local_action: stat path="ceph-mds.logrotate"
+    register: ceph_mds_logrotate
+    become: false
+
+  - name: copy ceph mds logrotate config
+    copy: src=ceph-mds.logrotate dest=/etc/logrotate.d/ceph owner=root group=root mode=644
+    when: ceph_mds_logrotate.stat.exists
+
+- hosts: osds
+  become: yes
+  tasks:
+  # This cleans up after a nuke operation (disks are not wiped)
+  # This will fail if the lvm volume is busy
+  - name: clear old lvm volumes
+    shell: lvremove --yes /dev/ceph*/*
+    ignore_errors: yes
+
+  # This cleans up after a nuke operation (disks are not wiped)
+  # This will fail if the lvm volume is busy
+  - name: clear /dev/sdc
+    shell: wipefs -a /dev/sdc
+    ignore_errors: yes
+
+  - name: check for osd logrotate config
+    local_action: stat path="ceph-osd.logrotate"
+    register: ceph_osd_logrotate
+    become: false
+
+  - name: copy ceph osd logrotate config
+    copy: src=ceph-osd.logrotate dest=/etc/logrotate.d/ceph owner=root group=root mode=644
+    when: ceph_osd_logrotate.stat.exists
+
+- hosts: mons
+  become: yes
+  tasks:
+  - name: check for mon logrotate config
+    local_action: stat path="ceph-mon.logrotate"
+    register: ceph_mon_logrotate
+    become: false
+
+  - name: copy ceph mon logrotate config
+    copy: src=ceph-mon.logrotate dest=/etc/logrotate.d/ceph owner=root group=root mode=644
+    when: ceph_mon_logrotate.stat.exists
+
+- hosts: clients
+  become: yes
+  tasks:
+  - name: install nfs-utils
+    yum: name=nfs-utils state=latest update_cache=yes
+
+  - name: install wget 
+    yum: name=wget state=latest update_cache=yes
+
+  - name: install gpg 
+    yum: name=gnupg state=latest update_cache=yes
+
+  - name: install Development Tools
+    yum: name="@Development tools" state=latest update_cache=yes
+
+  - name: install ncurses-devel
+    yum: name=ncurses-devel state=latest update_cache=yes
+
+  - name: install bison 
+    yum: name=bison state=latest update_cache=yes
+
+  - name: install flex 
+    yum: name=flex state=latest update_cache=yes
+
+  - name: install openssl-devel
+    yum: name=openssl-devel state=latest update_cache=yes
+
+  - name: install hmaccalc 
+    yum: name=hmaccalc state=latest update_cache=yes
+
+  - name: install hmaccalc 
+    yum: name=hmaccalc state=latest update_cache=yes
+
+  - name: install zlib-devel 
+    yum: name=zlib-devel state=latest update_cache=yes
+
+  - name: install binutils-devel 
+    yum: name=binutils-devel state=latest update_cache=yes
+
+  - name: install elfutils-libelf-devel 
+    yum: name=elfutils-libelf-devel state=latest update_cache=yes
+
+  - name: install bc 
+    yum: name=bc state=latest update_cache=yes
+
+- import_playbook: iptables.yml
